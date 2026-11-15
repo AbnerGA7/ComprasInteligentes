@@ -14,12 +14,6 @@ interface ComprasDao {
     @Insert
     suspend fun insertarInteraccion(interaccion: InteraccionEntity)
 
-    @Insert
-    suspend fun insertarInteracciones(interacciones: List<InteraccionEntity>)
-
-    @Query("DELETE FROM interacciones WHERE id = :id")
-    suspend fun borrarInteraccion(id: Long)
-
     @Query("DELETE FROM interacciones")
     suspend fun borrarInteracciones()
 
@@ -28,9 +22,6 @@ interface ComprasDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun agregarFavorito(favorito: FavoritoEntity)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun agregarFavoritos(favoritos: List<FavoritoEntity>)
 
     @Query("DELETE FROM favoritos WHERE productoId = :productoId")
     suspend fun quitarFavorito(productoId: String)

@@ -32,6 +32,34 @@ enum class Franja(val etiqueta: String) {
     }
 }
 
+enum class TipoDia(val etiqueta: String) {
+    ENTRE_SEMANA("Entre semana"),
+    FIN_DE_SEMANA("Fin de semana")
+}
+
+enum class Momento(val etiqueta: String) {
+    MANANA("Mañana"),
+    TARDE("Tarde"),
+    NOCHE("Noche")
+}
+
+/** Lo que mira Naive Bayes: tipo de día y momento del día (dos datos que trata como independientes). */
+data class Contexto(val dia: TipoDia, val momento: Momento) {
+    companion object {
+        fun de(fecha: LocalDateTime): Contexto = de(fecha.dayOfWeek, fecha.hour)
+
+        /** Mañana 5:00–11:59, tarde 12:00–17:59, noche 18:00–4:59. */
+        fun de(dia: DayOfWeek, hora: Int): Contexto = Contexto(
+            if (dia == DayOfWeek.SATURDAY || dia == DayOfWeek.SUNDAY) TipoDia.FIN_DE_SEMANA else TipoDia.ENTRE_SEMANA,
+            when (hora) {
+                in 5..11 -> Momento.MANANA
+                in 12..17 -> Momento.TARDE
+                else -> Momento.NOCHE
+            }
+        )
+    }
+}
+
 data class Producto(
     val id: String,
     val nombre: String,
@@ -46,7 +74,8 @@ data class Interaccion(
     val productoId: String?,
     val categoria: Categoria,
     val tipo: TipoInteraccion,
-    val epochMillis: Long
+    val epochMillis: Long,
+    val contexto: Contexto
 )
 
 data class Recomendacion(

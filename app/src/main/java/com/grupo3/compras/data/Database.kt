@@ -5,12 +5,17 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [ProductoEntity::class, InteraccionEntity::class], version = 1, exportSchema = false)
+@Database(
+    entities = [InteraccionEntity::class, FavoritoEntity::class, MostradoEntity::class],
+    version = 1,
+    exportSchema = false
+)
 abstract class ComprasDatabase : RoomDatabase() {
     abstract fun dao(): ComprasDao
 
     companion object {
-        @Volatile private var instancia: ComprasDatabase? = null
+        @Volatile
+        private var instancia: ComprasDatabase? = null
 
         fun obtener(context: Context): ComprasDatabase =
             instancia ?: synchronized(this) {
@@ -18,7 +23,7 @@ abstract class ComprasDatabase : RoomDatabase() {
                     context.applicationContext,
                     ComprasDatabase::class.java,
                     "compras.db"
-                ).build().also { instancia = it }
+                ).fallbackToDestructiveMigration().build().also { instancia = it }
             }
     }
 }

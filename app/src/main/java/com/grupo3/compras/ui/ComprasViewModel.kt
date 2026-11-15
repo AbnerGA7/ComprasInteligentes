@@ -10,6 +10,7 @@ import com.grupo3.compras.data.InteraccionEntity
 import com.grupo3.compras.data.MostradoEntity
 import com.grupo3.compras.data.aDominio
 import com.grupo3.compras.domain.Categoria
+import com.grupo3.compras.domain.Contexto
 import com.grupo3.compras.domain.Franja
 import com.grupo3.compras.domain.Producto
 import com.grupo3.compras.domain.Recomendacion
@@ -61,6 +62,10 @@ class ComprasViewModel(app: Application) : AndroidViewModel(app) {
     val franja: StateFlow<Franja> = ahora.map { Franja.de(it) }.distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.Eagerly, Franja.de(LocalDateTime.now()))
 
+    /** Día y momento actuales: lo que usa Naive Bayes. */
+    val contexto: StateFlow<Contexto> = ahora.map { Contexto.de(it) }.distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, Contexto.de(LocalDateTime.now()))
+
     // ---------------- Datos guardados en el teléfono (Room) ----------------
     private val interacciones = dao.interaccionesFlow().map { lista -> lista.map { it.aDominio() } }
     private val favoritosIds: Flow<Set<String>> =
@@ -83,6 +88,17 @@ class ComprasViewModel(app: Application) : AndroidViewModel(app) {
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /** Naive Bayes: probabilidad de cada categoría ahora. Vacío mientras no haya historial. */
+    val probabilidades: StateFlow<List<Pair<Categoria, Double>>> = combine(interacciones, contexto) { historial, ctx ->
+        if (historial.isEmpty()) {
+            emptyList<Pair<Categoria, Double>>()
+        } else {
+            motor.probabilidadesPorCategoria(historial, ctx, System.currentTimeMillis())
+                .toList()
+                .sortedByDescending { it.second }
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     // ---------------- Recomendaciones ----------------
     /** Productos mostrados en los últimos lotes. Solo cambia al iniciar y con "Ver otras". */
     private val recientes = MutableStateFlow<List<String>?>(null)
@@ -91,13 +107,15 @@ class ComprasViewModel(app: Application) : AndroidViewModel(app) {
         interacciones,
         favoritosIds,
         franja,
+        contexto,
         recientes.filterNotNull()
-    ) { historial, favs, franjaActual, mostrados ->
+    ) { historial, favs, franjaActual, contextoActual, mostrados ->
         motor.recomendar(
             catalogo = Catalogo.productos,
             historial = historial,
             favoritos = favs,
             franja = franjaActual,
+            contexto = contextoActual,
             ahora = System.currentTimeMillis(),
             mostradosRecientes = mostrados
         )
@@ -184,6 +202,7 @@ class ComprasViewModel(app: Application) : AndroidViewModel(app) {
             interaccion = tipo.name,
             fecha = System.currentTimeMillis(),
             hora = ahora.value.hour,
+            diaSemana = ahora.value.dayOfWeek.value,
             peso = tipo.peso,
             termino = termino
         )

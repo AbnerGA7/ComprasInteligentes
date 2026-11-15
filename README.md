@@ -10,7 +10,7 @@ https://github.com/AbnerGA7/ComprasInteligentes/releases/download/apk-latest/app
 
 | Requisito | Dónde se resuelve |
 |---|---|
-| Aprende de búsquedas, clics y favoritos | Cada acción se guarda en Room con su peso (búsqueda 1, clic 2, favorito 3). Las acciones recientes pesan más: cada 7 días un punto vale la mitad. `Recomendador.puntosPorCategoria` |
+| Aprende de búsquedas, clics y favoritos | Cada acción se guarda en Room con su peso (búsqueda 1, clic 2, favorito 3), la hora y el día de la semana. Las acciones recientes pesan más: cada 7 días un punto vale la mitad. `Recomendador.puntosPorCategoria` |
 | En horario laboral recomienda artículos de oficina | Lunes a viernes de 9:00 a 17:59 se reservan 2 de los 3 lugares para Oficina. `Franja.de` y `Recomendador.recomendar` |
 | En fin de semana recomienda entretenimiento | Sábado y domingo se reservan 2 de los 3 lugares para Entretenimiento |
 | Evita recomendar siempre los mismos productos | Lo mostrado hace poco baja de posición (cada vez que se repite vale la mitad), máximo 2 por categoría, los favoritos no se vuelven a recomendar y el botón "Ver otras" rota las sugerencias |
@@ -18,16 +18,24 @@ https://github.com/AbnerGA7/ComprasInteligentes/releases/download/apk-latest/app
 ## Flujo de la diapositiva 13
 1. **Registrar**: `InteraccionEntity` con categoría, interacción, fecha, hora y peso.
 2. **Calcular**: se acumulan los puntos por categoría y por producto y se ordenan.
-3. **Contextualizar**: se ajusta según día y hora (laboral, fin de semana u otro).
+3. **Contextualizar**: se ajusta según día y hora (laboral, fin de semana u otro) y Naive Bayes estima qué categoría es más probable en ese momento.
 4. **Mostrar**: lista con 3 recomendaciones y el motivo de cada una.
 
+## Naive Bayes
+`NaiveBayes.kt` estima `P(Categoría | Contexto) ∝ P(Categoría) × P(Día | Categoría) × P(Momento | Categoría)`.
+El contexto es el tipo de día (entre semana o fin de semana) y el momento (mañana, tarde o noche).
+En lugar de contar cada acción como 1, cuenta su peso (búsqueda 1, clic 2, favorito 3, con olvido de 7 días) y usa suavizado de Laplace para evitar probabilidades de 0.
+
+Puntaje de cada producto = 50 % lo que te interesó ese producto + 30 % probabilidad Naive Bayes de su categoría + 20 % popularidad.
+Las reglas del grupo (horario laboral → oficina, fin de semana → entretenimiento) siguen reservando 2 de los 3 lugares.
+
 ## Pantallas
-- **Para ti**: contexto actual, las 3 recomendaciones, "Ver otras" y lo que la app ha aprendido. Los botones "Probar con otro momento" permiten simular horario laboral o fin de semana sin esperar al día.
+- **Para ti**: contexto actual, las 3 recomendaciones, "Ver otras" y lo que la app ha aprendido (puntos por categoría y probabilidad de Naive Bayes). Los botones "Probar con otro momento" permiten simular horario laboral o fin de semana sin esperar al día.
 - **Productos**: buscador y filtro por categoría (24 productos de ejemplo).
 - **Favoritos**: lista de productos guardados.
 
 ## Pruebas
-`app/src/test/.../RecomendadorTest.kt` tiene 18 pruebas del motor (contexto, pesos, decaimiento, favoritos, variedad, rotación y catálogo).
+`app/src/test/.../RecomendadorTest.kt` tiene 27 pruebas del motor (contexto, pesos, decaimiento, Naive Bayes, favoritos, variedad, rotación y catálogo).
 GitHub Actions las corre en cada push antes de armar el APK.
 
 ## Compilar

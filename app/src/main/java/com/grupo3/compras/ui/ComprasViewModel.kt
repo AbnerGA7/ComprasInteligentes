@@ -121,6 +121,21 @@ class ComprasViewModel(app: Application) : AndroidViewModel(app) {
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /** Productos nuevos parecidos a lo que buscaste, abriste o guardaste. Cambian al instante con cada acción. */
+    val relacionados: StateFlow<List<Recomendacion>> = combine(
+        interacciones,
+        favoritosIds,
+        recomendaciones
+    ) { historial, favs, principales ->
+        motor.relacionados(
+            catalogo = Catalogo.productos,
+            historial = historial,
+            favoritos = favs,
+            excluir = principales.map { it.producto.id }.toSet(),
+            ahora = System.currentTimeMillis()
+        )
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     private val _productoAbierto = MutableStateFlow<Producto?>(null)
     val productoAbierto: StateFlow<Producto?> = _productoAbierto.asStateFlow()
 
@@ -172,17 +187,13 @@ class ComprasViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Aprende de lo que se busca: una búsqueda por cada una de las 2 categorías más frecuentes en los resultados. */
+    /** Aprende de lo que se busca: guarda una búsqueda sobre el producto que mejor responde al texto. */
     fun registrarBusqueda(texto: String) {
         val limpio = Catalogo.normalizar(texto)
         if (limpio.length < 3 || limpio == ultimaBusqueda) return
-        val encontrados = Catalogo.buscar(texto)
-        if (encontrados.isEmpty()) return
+        val mejor = Catalogo.mejorCoincidencia(texto) ?: return
         ultimaBusqueda = limpio
-        encontrados.groupBy { it.categoria }.entries
-            .sortedByDescending { it.value.size }
-            .take(2)
-            .forEach { registrar(null, it.key, TipoInteraccion.BUSQUEDA, texto.trim()) }
+        registrar(mejor, mejor.categoria, TipoInteraccion.BUSQUEDA, texto.trim())
     }
 
     fun borrarMisDatos() {
@@ -218,6 +229,6 @@ class ComprasViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private companion object {
-        const val LOTES_RECIENTES = 3
+        const val LOTES_RECIENTES = 6
     }
 }

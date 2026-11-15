@@ -67,7 +67,9 @@ data class Producto(
     val precio: Double,
     val descripcion: String,
     val emoji: String,
-    val popularidad: Int = 50
+    val popularidad: Int = 50,
+    /** Palabras que relacionan productos entre sí (por ejemplo "computo" o "cocina"), aunque sean de otra categoría. */
+    val etiquetas: Set<String> = emptySet()
 )
 
 data class Interaccion(

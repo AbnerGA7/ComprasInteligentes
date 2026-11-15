@@ -36,13 +36,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.grupo3.compras.domain.Franja
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.roundToInt
 
 private val FormatoDia: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE HH:mm", Locale.forLanguageTag("es-PE"))
 
 private fun explicacion(franja: Franja): String = when (franja) {
     Franja.LABORAL -> "Es horario laboral: te mostramos primero artículos de oficina."
     Franja.FIN_DE_SEMANA -> "Es fin de semana: te mostramos primero productos de entretenimiento."
-    Franja.OTRO -> "Fuera de horario laboral: te recomendamos según lo que más te interesa."
+    Franja.OTRO -> "Fuera de horario laboral: te recomendamos según lo que más te interesa en este momento."
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -54,6 +55,8 @@ fun RecomendadosScreen(vm: ComprasViewModel, modifier: Modifier = Modifier) {
     val ahora by vm.ahora.collectAsStateWithLifecycle()
     val modo by vm.modoHora.collectAsStateWithLifecycle()
     val gustos by vm.gustos.collectAsStateWithLifecycle()
+    val probabilidades by vm.probabilidades.collectAsStateWithLifecycle()
+    val contexto by vm.contexto.collectAsStateWithLifecycle()
     var confirmarBorrado by rememberSaveable { mutableStateOf(false) }
 
     LazyColumn(
@@ -143,32 +146,30 @@ fun RecomendadosScreen(vm: ComprasViewModel, modifier: Modifier = Modifier) {
                 )
             }
         } else {
+            item { Subtitulo("Tus puntos por categoría") }
             val maximo = gustos.first().second
-            items(gustos, key = { it.first.name }) { (categoria, puntos) ->
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(categoria.etiqueta, style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            String.format(Locale.US, "%.1f pts", puntos),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    LinearProgressIndicator(
-                        progress = { (puntos / maximo).toFloat() },
-                        modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
-                }
-            }
-            item {
-                Text(
-                    "Búsqueda = 1 punto, clic = 2, favorito = 3. Lo reciente pesa más.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            items(gustos, key = { "puntos-" + it.first.name }) { (categoria, puntos) ->
+                BarraCategoria(
+                    nombre = categoria.etiqueta,
+                    valor = String.format(Locale.US, "%.1f pts", puntos),
+                    progreso = (puntos / maximo).toFloat()
                 )
             }
+            item { Nota("Búsqueda = 1 punto, clic = 2, favorito = 3. Lo reciente pesa más.") }
+
+            item {
+                Subtitulo(
+                    "Probabilidad ahora (Naive Bayes) · ${contexto.dia.etiqueta}, ${contexto.momento.etiqueta.lowercase()}"
+                )
+            }
+            items(probabilidades, key = { "bayes-" + it.first.name }) { (categoria, probabilidad) ->
+                BarraCategoria(
+                    nombre = categoria.etiqueta,
+                    valor = "${(probabilidad * 100).roundToInt()} %",
+                    progreso = probabilidad.toFloat()
+                )
+            }
+            item { Nota("Naive Bayes calcula qué categoría es más probable según el día y el momento, usando tu historial.") }
         }
 
         item {
@@ -189,6 +190,45 @@ fun RecomendadosScreen(vm: ComprasViewModel, modifier: Modifier = Modifier) {
                 }) { Text("Borrar") }
             },
             dismissButton = { TextButton(onClick = { confirmarBorrado = false }) { Text("Cancelar") } }
+        )
+    }
+}
+
+@Composable
+private fun Subtitulo(texto: String) {
+    Text(
+        texto,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 4.dp)
+    )
+}
+
+@Composable
+private fun Nota(texto: String) {
+    Text(
+        texto,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
+@Composable
+private fun BarraCategoria(nombre: String, valor: String, progreso: Float) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(nombre, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                valor,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        LinearProgressIndicator(
+            progress = { progreso.coerceIn(0f, 1f) },
+            modifier = Modifier.fillMaxWidth(),
+            color = MaterialTheme.colorScheme.primary,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant
         )
     }
 }

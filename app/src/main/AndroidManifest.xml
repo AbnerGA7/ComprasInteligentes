@@ -2,9 +2,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- Sin permiso de Internet a propósito: todo el historial se queda en el teléfono. -->
-    <uses-feature
-        android:name="android.hardware.sensor.accelerometer"
-        android:required="false" />
 
     <application
         android:allowBackup="false"

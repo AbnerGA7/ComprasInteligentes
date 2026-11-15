@@ -1,29 +1,34 @@
 # Compras Inteligentes (Grupo 3)
 
 Recomendador **on-device** de productos para la Semana 11 (Laboratorio de Apps Autónomas y Edge AI).
-La app aprende de búsquedas, clics y favoritos, y adapta lo que muestra según la hora y la actividad.
 Todo el historial vive en Room, dentro del teléfono: la app **no tiene permiso de Internet**.
 
 ## Descargar el APK
 https://github.com/AbnerGA7/ComprasInteligentes/releases/download/apk-latest/app-debug.apk
 
-## Cómo funciona (diapositiva 13)
-1. **Registrar**: entidad Room con categoría, interacción, fecha, actividad, hora, franja y peso.
-2. **Calcular**: puntaje por categoría (búsqueda 1, clic 2, favorito 3) con decaimiento: cada 7 días un punto vale la mitad.
-3. **Contextualizar**: Naive Bayes `P(Categoría | Contexto) ∝ P(Contexto | Categoría) × P(Categoría)` más las reglas del grupo:
-   horario laboral → oficina, fin de semana → entretenimiento.
-4. **Mostrar**: 3 recomendaciones. Sentado → lista; caminando → carrusel rápido con ofertas.
+## Lo que pide el grupo
 
-Evita repetir siempre lo mismo: lo mostrado recientemente baja de posición, el tercer lugar prueba una categoría nueva
-y "Ver otras" rota las sugerencias.
+| Requisito | Dónde se resuelve |
+|---|---|
+| Aprende de búsquedas, clics y favoritos | Cada acción se guarda en Room con su peso (búsqueda 1, clic 2, favorito 3). Las acciones recientes pesan más: cada 7 días un punto vale la mitad. `Recomendador.puntosPorCategoria` |
+| En horario laboral recomienda artículos de oficina | Lunes a viernes de 9:00 a 17:59 se reservan 2 de los 3 lugares para Oficina. `Franja.de` y `Recomendador.recomendar` |
+| En fin de semana recomienda entretenimiento | Sábado y domingo se reservan 2 de los 3 lugares para Entretenimiento |
+| Evita recomendar siempre los mismos productos | Lo mostrado hace poco baja de posición (cada vez que se repite vale la mitad), máximo 2 por categoría, los favoritos no se vuelven a recomendar y el botón "Ver otras" rota las sugerencias |
 
-## Privacidad
-Sin Internet, sin copia de seguridad en la nube, y desde Perfil se puede ver, borrar fila por fila o eliminar todo el historial.
+## Flujo de la diapositiva 13
+1. **Registrar**: `InteraccionEntity` con categoría, interacción, fecha, hora y peso.
+2. **Calcular**: se acumulan los puntos por categoría y por producto y se ordenan.
+3. **Contextualizar**: se ajusta según día y hora (laboral, fin de semana u otro).
+4. **Mostrar**: lista con 3 recomendaciones y el motivo de cada una.
 
-## Escenarios de prueba (diapositiva 15)
-Perfil → Escenarios: usuario nuevo, historial de ejemplo y cambio de gustos. En "Para ti" se puede simular la hora
-(laboral, fin de semana, noche) y la actividad (sentado, caminando o automática con el acelerómetro).
+## Pantallas
+- **Para ti**: contexto actual, las 3 recomendaciones, "Ver otras" y lo que la app ha aprendido. Los botones "Probar con otro momento" permiten simular horario laboral o fin de semana sin esperar al día.
+- **Productos**: buscador y filtro por categoría (24 productos de ejemplo).
+- **Favoritos**: lista de productos guardados.
+
+## Pruebas
+`app/src/test/.../RecomendadorTest.kt` tiene 18 pruebas del motor (contexto, pesos, decaimiento, favoritos, variedad, rotación y catálogo).
+GitHub Actions las corre en cada push antes de armar el APK.
 
 ## Compilar
-Abrir la carpeta en Android Studio y ejecutar Build > Build APK(s), o dejar que GitHub Actions lo compile en cada push
-(también corre las pruebas unitarias del motor).
+Abrir la carpeta en Android Studio y ejecutar Build > Build APK(s), o dejar que GitHub Actions lo compile en cada push.

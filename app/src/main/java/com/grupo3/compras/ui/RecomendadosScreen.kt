@@ -55,6 +55,7 @@ fun RecomendadosScreen(vm: ComprasViewModel, modifier: Modifier = Modifier) {
     val ahora by vm.ahora.collectAsStateWithLifecycle()
     val modo by vm.modoHora.collectAsStateWithLifecycle()
     val gustos by vm.gustos.collectAsStateWithLifecycle()
+    val relacionados by vm.relacionados.collectAsStateWithLifecycle()
     val probabilidades by vm.probabilidades.collectAsStateWithLifecycle()
     val contexto by vm.contexto.collectAsStateWithLifecycle()
     var confirmarBorrado by rememberSaveable { mutableStateOf(false) }
@@ -132,6 +133,20 @@ fun RecomendadosScreen(vm: ComprasViewModel, modifier: Modifier = Modifier) {
                 Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Ver otras recomendaciones")
+            }
+        }
+
+        // Relacionados con lo que buscó o guardó (cambian al instante, sin importar la hora)
+        if (relacionados.isNotEmpty()) {
+            item { TituloSeccion("Relacionados con lo que buscaste y guardaste", Modifier.padding(top = 10.dp)) }
+            items(relacionados, key = { "rel-" + it.producto.id }) { rec ->
+                FilaProducto(
+                    producto = rec.producto,
+                    esFavorito = rec.producto.id in favoritos,
+                    motivo = rec.motivo,
+                    onClick = { vm.abrirProducto(rec.producto) },
+                    onFavorito = { vm.alternarFavorito(rec.producto) }
+                )
             }
         }
 

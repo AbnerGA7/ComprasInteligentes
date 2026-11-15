@@ -26,16 +26,22 @@ https://github.com/AbnerGA7/ComprasInteligentes/releases/download/apk-latest/app
 El contexto es el tipo de día (entre semana o fin de semana) y el momento (mañana, tarde o noche).
 En lugar de contar cada acción como 1, cuenta su peso (búsqueda 1, clic 2, favorito 3, con olvido de 7 días) y usa suavizado de Laplace para evitar probabilidades de 0.
 
-Puntaje de cada producto = 50 % lo que te interesó ese producto + 30 % probabilidad Naive Bayes de su categoría + 20 % popularidad.
+Puntaje de cada producto = 35 % lo que te interesó ese producto + 25 % parecido a lo que ya buscaste o guardaste + 25 % probabilidad Naive Bayes de su categoría + 15 % popularidad.
 Las reglas del grupo (horario laboral → oficina, fin de semana → entretenimiento) siguen reservando 2 de los 3 lugares.
 
+## Parecidos: buscar o guardar se nota al instante
+Cada producto tiene etiquetas (por ejemplo `computo`, `escritorio`, `cocina`, `musica`) que lo relacionan con otros, incluso de otras categorías.
+Al buscar, abrir o guardar un producto, suben los que comparten etiquetas con él (similitud de Jaccard, ponderada por los puntos de la acción).
+Una búsqueda se guarda sobre el producto que mejor coincide con el texto (el que lo tiene en el nombre y es más popular).
+La sección **Relacionados** de "Para ti" muestra productos nuevos parecidos a lo que hiciste, uno por cada cosa que tocaste, sin importar la hora.
+
 ## Pantallas
-- **Para ti**: contexto actual, las 3 recomendaciones, "Ver otras" y lo que la app ha aprendido (puntos por categoría y probabilidad de Naive Bayes). Los botones "Probar con otro momento" permiten simular horario laboral o fin de semana sin esperar al día.
-- **Productos**: buscador y filtro por categoría (24 productos de ejemplo).
+- **Para ti**: contexto actual, las 3 recomendaciones, "Ver otras", productos relacionados con lo que buscaste y guardaste, y lo que la app ha aprendido (puntos por categoría y probabilidad de Naive Bayes). Los botones "Probar con otro momento" permiten simular horario laboral o fin de semana sin esperar al día.
+- **Productos**: buscador y filtro por categoría (48 productos de ejemplo, 12 por categoría).
 - **Favoritos**: lista de productos guardados.
 
 ## Pruebas
-`app/src/test/.../RecomendadorTest.kt` tiene 27 pruebas del motor (contexto, pesos, decaimiento, Naive Bayes, favoritos, variedad, rotación y catálogo).
+`app/src/test/.../RecomendadorTest.kt` tiene 35 pruebas del motor (contexto, pesos, decaimiento, Naive Bayes, parecidos, favoritos, variedad, rotación y catálogo).
 GitHub Actions las corre en cada push antes de armar el APK.
 
 ## Compilar

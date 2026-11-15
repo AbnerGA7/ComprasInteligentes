@@ -8,10 +8,11 @@ import kotlin.math.roundToInt
  *
  * 1. Aprende: suma los pesos de las búsquedas (1), clics (2) y favoritos (3) por categoría y por producto.
  *    Las acciones recientes pesan más: cada [semividaDias] días un punto vale la mitad.
- * 2. Contexto: en horario laboral reserva lugares para artículos de oficina y en fin de semana
+ * 2. Parecidos: lo que buscas, abres o guardas hace subir a los productos que comparten etiquetas con ellos.
+ * 3. Contexto: en horario laboral reserva lugares para artículos de oficina y en fin de semana
  *    para productos de entretenimiento. Además, Naive Bayes estima qué categoría es más probable
  *    según el día y el momento del día, y esa probabilidad entra al puntaje de cada producto.
- * 3. Variedad: lo que se mostró hace poco baja de posición, así no se repiten siempre los mismos.
+ * 4. Variedad: lo que se mostró hace poco baja de posición, así no se repiten siempre los mismos.
  */
 class Recomendador(private val semividaDias: Double = 7.0) {
 
@@ -21,6 +22,9 @@ class Recomendador(private val semividaDias: Double = 7.0) {
         const val MAX_POR_CATEGORIA = 2
         private const val MS_POR_DIA = 86_400_000.0
     }
+
+    /** Cuánto se parece un producto a lo que el usuario ya buscó, abrió o guardó, y a cuál de esos se parece más. */
+    private class Parecido(val total: Double, val origen: Producto?)
 
     private fun peso(i: Interaccion, ahora: Long): Double {
         val dias = (ahora - i.epochMillis).coerceAtLeast(0L) / MS_POR_DIA
@@ -50,6 +54,55 @@ class Recomendador(private val semividaDias: Double = 7.0) {
         Franja.OTRO -> null
     }
 
+    // ------------------------------------------------------------------ interés y parecidos
+
+    private fun interesPorProducto(historial: List<Interaccion>, ahora: Long): Map<String, Double> =
+        historial
+            .filter { it.productoId != null }
+            .groupBy { it.productoId!! }
+            .mapValues { (_, lista) -> lista.sumOf { peso(it, ahora) } }
+
+    /** La acción más fuerte que hizo el usuario con cada producto: favorito, luego clic, luego búsqueda. */
+    private fun accionPrincipal(historial: List<Interaccion>): Map<String, TipoInteraccion> =
+        historial
+            .filter { it.productoId != null }
+            .groupBy { it.productoId!! }
+            .mapValues { (_, lista) -> lista.maxBy { it.tipo.peso }.tipo }
+
+    private fun jaccard(a: Set<String>, b: Set<String>): Double {
+        if (a.isEmpty() || b.isEmpty()) return 0.0
+        val comunes = a.count { it in b }
+        return comunes.toDouble() / (a.size + b.size - comunes)
+    }
+
+    private fun parecidos(catalogo: List<Producto>, interes: Map<String, Double>): Map<String, Parecido> {
+        val porId = catalogo.associateBy { it.id }
+        return catalogo.associate { candidato ->
+            var total = 0.0
+            var mejorAporte = 0.0
+            var origen: Producto? = null
+            for ((id, pesoDelInteres) in interes) {
+                val visto = porId[id] ?: continue
+                if (visto.id == candidato.id) continue
+                val aporte = pesoDelInteres * jaccard(visto.etiquetas, candidato.etiquetas)
+                total += aporte
+                if (aporte > mejorAporte) {
+                    mejorAporte = aporte
+                    origen = visto
+                }
+            }
+            candidato.id to Parecido(total, origen)
+        }
+    }
+
+    private fun motivoParecido(origen: Producto, accion: TipoInteraccion?): String = when (accion) {
+        TipoInteraccion.FAVORITO -> "Parecido a tu favorito: ${origen.nombre}"
+        TipoInteraccion.BUSQUEDA -> "Parecido a lo que buscaste: ${origen.nombre}"
+        else -> "Parecido a lo que viste: ${origen.nombre}"
+    }
+
+    // ------------------------------------------------------------------ recomendaciones
+
     fun recomendar(
         catalogo: List<Producto>,
         historial: List<Interaccion>,
@@ -62,16 +115,23 @@ class Recomendador(private val semividaDias: Double = 7.0) {
     ): List<Recomendacion> {
         val puntos = puntosPorCategoria(historial, ahora)
         val probabilidades = probabilidadesPorCategoria(historial, contexto, ahora)
-        val interes: Map<String, Double> = historial
-            .filter { it.productoId != null }
-            .groupBy { it.productoId!! }
-            .mapValues { (_, lista) -> lista.sumOf { peso(it, ahora) } }
+        val interes = interesPorProducto(historial, ahora)
+        val acciones = accionPrincipal(historial)
         val maxInteres = interes.values.maxOrNull() ?: 0.0
+        val parecidos = parecidos(catalogo, interes)
+        val maxParecido = parecidos.values.maxOfOrNull { it.total } ?: 0.0
 
-        // 50 % lo que te interesó ese producto + 30 % probabilidad (Naive Bayes) de su categoría + 20 % popularidad
+        fun parecidoNormalizado(p: Producto): Double =
+            if (maxParecido > 0) parecidos.getValue(p.id).total / maxParecido else 0.0
+
+        // 35 % interés en el producto + 25 % parecido a lo que te interesó + 25 % probabilidad (Naive Bayes)
+        // de su categoría + 15 % popularidad. Lo mostrado hace poco vale la mitad por cada vez.
         fun puntaje(p: Producto): Double {
             val gustoProducto = if (maxInteres > 0) (interes[p.id] ?: 0.0) / maxInteres else 0.0
-            val base = 0.5 * gustoProducto + 0.3 * probabilidades.getValue(p.categoria) + 0.2 * (p.popularidad / 100.0)
+            val base = 0.35 * gustoProducto +
+                0.25 * parecidoNormalizado(p) +
+                0.25 * probabilidades.getValue(p.categoria) +
+                0.15 * (p.popularidad / 100.0)
             val vecesMostrado = mostradosRecientes.count { it == p.id }
             return base * 0.5.pow(vecesMostrado)
         }
@@ -80,6 +140,11 @@ class Recomendador(private val semividaDias: Double = 7.0) {
             if ((interes[p.id] ?: 0.0) > 0) "$motivo · ya lo viste" else motivo
 
         fun motivoDeGusto(p: Producto): String {
+            val parecido = parecidos.getValue(p.id)
+            val origen = parecido.origen
+            if (origen != null && parecidoNormalizado(p) >= 0.5) {
+                return motivoParecido(origen, acciones[origen.id])
+            }
             if (puntos.getValue(p.categoria) <= 0) return "Producto popular"
             val porcentaje = (probabilidades.getValue(p.categoria) * 100).roundToInt()
             val loViste = (interes[p.id] ?: 0.0) > 0
@@ -115,5 +180,45 @@ class Recomendador(private val semividaDias: Double = 7.0) {
             if (elegidos.none { it.producto.id == p.id }) elegidos += Recomendacion(p, motivoDeGusto(p))
         }
         return elegidos
+    }
+
+    /**
+     * Productos nuevos parecidos a lo que el usuario buscó, abrió o guardó, sin importar la hora.
+     * No incluye favoritos, lo que ya tocó ni lo que ya está en las recomendaciones principales ([excluir]).
+     */
+    fun relacionados(
+        catalogo: List<Producto>,
+        historial: List<Interaccion>,
+        favoritos: Set<String>,
+        excluir: Set<String>,
+        ahora: Long,
+        cantidad: Int = 3
+    ): List<Recomendacion> {
+        val interes = interesPorProducto(historial, ahora)
+        val acciones = accionPrincipal(historial)
+        val parecidos = parecidos(catalogo, interes)
+        val candidatos = catalogo
+            .filter { it.id !in favoritos && it.id !in excluir && it.id !in interes }
+            .mapNotNull { p ->
+                val parecido = parecidos.getValue(p.id)
+                val origen = parecido.origen
+                if (parecido.total > 0 && origen != null) Triple(p, parecido.total, origen) else null
+            }
+            .sortedByDescending { it.second }
+
+        val elegidos = mutableListOf<Triple<Producto, Double, Producto>>()
+        // 1) Uno por cada producto distinto que tocó, para que lo último que hizo siempre se note.
+        for (c in candidatos) {
+            if (elegidos.size >= cantidad) break
+            if (elegidos.none { it.third.id == c.third.id }) elegidos += c
+        }
+        // 2) Si sobran lugares, los mejores que queden.
+        for (c in candidatos) {
+            if (elegidos.size >= cantidad) break
+            if (c !in elegidos) elegidos += c
+        }
+        return elegidos
+            .sortedByDescending { it.second }
+            .map { (p, _, origen) -> Recomendacion(p, motivoParecido(origen, acciones[origen.id])) }
     }
 }

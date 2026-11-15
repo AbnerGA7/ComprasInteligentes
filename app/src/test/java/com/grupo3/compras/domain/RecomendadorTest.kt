@@ -149,7 +149,10 @@ class RecomendadorTest {
 
     @Test
     fun siQuedanPocosDeLaCategoriaSigueHabiendoTresRecomendaciones() {
-        val favoritos = setOf("of1", "of2", "of3", "of4", "of5")
+        val favoritos = Catalogo.productos
+            .filter { it.categoria == Categoria.OFICINA && it.id != "of6" }
+            .map { it.id }
+            .toSet()
         val recs = recomendar(Franja.LABORAL, favoritos = favoritos)
         assertEquals(3, recs.size)
         assertEquals("of6", recs[0].producto.id)
@@ -187,7 +190,7 @@ class RecomendadorTest {
                 assertEquals(categoria, recs[1].producto.categoria)
                 vistos += actuales
                 anterior = actuales
-                recientes = (actuales + recientes).take(9) // igual que "Ver otras" en la app
+                recientes = (actuales + recientes).take(18) // igual que "Ver otras" en la app (6 lotes de 3)
             }
             val delContexto = Catalogo.productos.filter { it.categoria == categoria }.map { it.id }.toSet()
             assertTrue("faltaron ${delContexto - vistos}", vistos.containsAll(delContexto))
@@ -279,6 +282,92 @@ class RecomendadorTest {
         assertEquals(Momento.NOCHE, Contexto.de(LocalDateTime.of(2026, 11, 16, 18, 0)).momento)
     }
 
+    // ------------------------------------------------------------ parecidos (búsquedas y favoritos al instante)
+
+    @Test
+    fun laMejorCoincidenciaDeUnaBusquedaEsElNombreMasPopular() {
+        assertEquals("te1", Catalogo.mejorCoincidencia("laptop")?.id)
+        assertEquals("te3", Catalogo.mejorCoincidencia("teclado")?.id)
+        assertEquals("of1", Catalogo.mejorCoincidencia("silla")?.id)
+        assertEquals(null, Catalogo.mejorCoincidencia("zzzz"))
+        assertEquals(null, Catalogo.mejorCoincidencia("  "))
+    }
+
+    @Test
+    fun sinHistorialNoHayRelacionados() {
+        val r = motor.relacionados(Catalogo.productos, emptyList(), emptySet(), emptySet(), ahora)
+        assertTrue(r.isEmpty())
+    }
+
+    @Test
+    fun unFavoritoHaceAparecerProductosParecidos() {
+        val historial = listOf(accion("te1", Categoria.TECNOLOGIA, TipoInteraccion.FAVORITO))
+        val r = motor.relacionados(Catalogo.productos, historial, setOf("te1"), emptySet(), ahora)
+        assertEquals(3, r.size)
+        assertTrue(r.none { it.producto.id == "te1" })
+        assertTrue(r.all { it.motivo == "Parecido a tu favorito: Laptop 14\"" })
+        // La laptop comparte etiquetas con monitor, mouse y teclado.
+        assertTrue(ids(r).all { it in setOf("te7", "te4", "te3", "of11", "te9", "te5", "te2", "te8") })
+    }
+
+    @Test
+    fun unaBusquedaTambienGeneraRelacionados() {
+        val historial = listOf(accion("te3", Categoria.TECNOLOGIA, TipoInteraccion.BUSQUEDA))
+        val r = motor.relacionados(Catalogo.productos, historial, emptySet(), emptySet(), ahora)
+        assertTrue(r.isNotEmpty())
+        assertTrue(r.all { it.motivo == "Parecido a lo que buscaste: Teclado mecánico" })
+        assertTrue(r.none { it.producto.id == "te3" })
+    }
+
+    @Test
+    fun losRelacionadosNoRepitenLoPrincipalNiLosFavoritos() {
+        val historial = listOf(accion("te1", Categoria.TECNOLOGIA, TipoInteraccion.FAVORITO))
+        val principales = recomendar(Franja.FIN_DE_SEMANA, historial, setOf("te1"))
+        val r = motor.relacionados(
+            Catalogo.productos, historial, setOf("te1"), principales.map { it.producto.id }.toSet(), ahora
+        )
+        assertTrue(r.none { it.producto.id in principales.map { p -> p.producto.id } })
+        assertTrue(r.none { it.producto.id == "te1" })
+    }
+
+    @Test
+    fun buscarOGuardarSeNotaEnLaListaPrincipalAunEnFinDeSemana() {
+        // Sábado: 2 lugares son de entretenimiento, pero el tercero responde a lo que guardó.
+        val historial = listOf(accion("te1", Categoria.TECNOLOGIA, TipoInteraccion.FAVORITO, contexto = finDeSemanaTarde))
+        val recs = recomendar(Franja.FIN_DE_SEMANA, historial, setOf("te1"), contexto = finDeSemanaTarde)
+        assertEquals(Categoria.ENTRETENIMIENTO, recs[0].producto.categoria)
+        assertEquals(Categoria.ENTRETENIMIENTO, recs[1].producto.categoria)
+        assertTrue(recs[2].motivo.contains("Laptop"))
+    }
+
+    @Test
+    fun cadaCosaQueHaceElUsuarioTieneSuLugarEnLosRelacionados() {
+        val historial = listOf(
+            accion("te1", Categoria.TECNOLOGIA, TipoInteraccion.FAVORITO),
+            accion("ho1", Categoria.HOGAR, TipoInteraccion.BUSQUEDA),
+            accion("en5", Categoria.ENTRETENIMIENTO, TipoInteraccion.FAVORITO)
+        )
+        val r = motor.relacionados(Catalogo.productos, historial, setOf("te1", "en5"), emptySet(), ahora)
+        assertEquals(3, r.size)
+        val motivos = r.map { it.motivo }.toSet()
+        assertEquals(
+            setOf(
+                "Parecido a tu favorito: Laptop 14\"",
+                "Parecido a lo que buscaste: Cafetera eléctrica",
+                "Parecido a tu favorito: Guitarra acústica"
+            ),
+            motivos
+        )
+    }
+
+    @Test
+    fun lasEtiquetasRelacionanCategoriasDistintas() {
+        // Un favorito de cocina sugiere más de cocina, no de oficina.
+        val historial = listOf(accion("ho1", Categoria.HOGAR, TipoInteraccion.FAVORITO))
+        val r = motor.relacionados(Catalogo.productos, historial, setOf("ho1"), emptySet(), ahora)
+        assertTrue(r.all { it.producto.etiquetas.contains("cocina") })
+    }
+
     // ------------------------------------------------------------ general
 
     @Test
@@ -302,14 +391,16 @@ class RecomendadorTest {
     fun elCatalogoEstaBienArmado() {
         val todos = Catalogo.productos
         assertEquals(todos.size, todos.map { it.id }.toSet().size)
-        Categoria.entries.forEach { c -> assertTrue(todos.count { it.categoria == c } >= 5) }
+        Categoria.entries.forEach { c -> assertEquals(12, todos.count { it.categoria == c }) }
+        assertTrue(todos.all { it.etiquetas.isNotEmpty() })
         assertTrue(todos.all { it.precio > 0 && it.nombre.isNotBlank() })
     }
 
     @Test
     fun laBusquedaIgnoraTildesYMayusculas() {
-        assertEquals(listOf("te3"), Catalogo.buscar("TECLADO").map { it.id })
-        assertEquals(6, Catalogo.buscar("tecnologia").size)
+        assertEquals(setOf("te3", "en9"), Catalogo.buscar("TECLADO").map { it.id }.toSet())
+        assertEquals(12, Catalogo.buscar("tecnologia").size)
+        assertTrue(Catalogo.buscar("música").any { it.id == "en5" })
         assertTrue(Catalogo.buscar("Silla").any { it.id == "of1" })
         assertEquals(Catalogo.productos.size, Catalogo.buscar("").size)
         assertTrue(Catalogo.buscar("zzzz").isEmpty())

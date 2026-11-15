@@ -1,6 +1,7 @@
 package com.grupo3.compras.domain
 
 import kotlin.math.pow
+import kotlin.math.roundToInt
 
 /**
  * Recomendador local (sin Internet) de productos.
@@ -8,7 +9,8 @@ import kotlin.math.pow
  * 1. Aprende: suma los pesos de las búsquedas (1), clics (2) y favoritos (3) por categoría y por producto.
  *    Las acciones recientes pesan más: cada [semividaDias] días un punto vale la mitad.
  * 2. Contexto: en horario laboral reserva lugares para artículos de oficina y en fin de semana
- *    para productos de entretenimiento.
+ *    para productos de entretenimiento. Además, Naive Bayes estima qué categoría es más probable
+ *    según el día y el momento del día, y esa probabilidad entra al puntaje de cada producto.
  * 3. Variedad: lo que se mostró hace poco baja de posición, así no se repiten siempre los mismos.
  */
 class Recomendador(private val semividaDias: Double = 7.0) {
@@ -31,6 +33,17 @@ class Recomendador(private val semividaDias: Double = 7.0) {
         return puntos
     }
 
+    /** Naive Bayes: probabilidad de que le interese cada categoría en este contexto (suman 1). */
+    fun probabilidadesPorCategoria(
+        historial: List<Interaccion>,
+        contexto: Contexto,
+        ahora: Long
+    ): Map<Categoria, Double> =
+        NaiveBayes.probabilidades(
+            historial.map { Observacion(it.categoria, it.contexto, peso(it, ahora)) },
+            contexto
+        )
+
     fun categoriaDelContexto(franja: Franja): Categoria? = when (franja) {
         Franja.LABORAL -> Categoria.OFICINA
         Franja.FIN_DE_SEMANA -> Categoria.ENTRETENIMIENTO
@@ -42,22 +55,23 @@ class Recomendador(private val semividaDias: Double = 7.0) {
         historial: List<Interaccion>,
         favoritos: Set<String>,
         franja: Franja,
+        contexto: Contexto,
         ahora: Long,
         mostradosRecientes: List<String> = emptyList(),
         cantidad: Int = 3
     ): List<Recomendacion> {
         val puntos = puntosPorCategoria(historial, ahora)
-        val maxPuntos = puntos.values.maxOrNull() ?: 0.0
+        val probabilidades = probabilidadesPorCategoria(historial, contexto, ahora)
         val interes: Map<String, Double> = historial
             .filter { it.productoId != null }
             .groupBy { it.productoId!! }
             .mapValues { (_, lista) -> lista.sumOf { peso(it, ahora) } }
         val maxInteres = interes.values.maxOrNull() ?: 0.0
 
+        // 50 % lo que te interesó ese producto + 30 % probabilidad (Naive Bayes) de su categoría + 20 % popularidad
         fun puntaje(p: Producto): Double {
             val gustoProducto = if (maxInteres > 0) (interes[p.id] ?: 0.0) / maxInteres else 0.0
-            val gustoCategoria = if (maxPuntos > 0) puntos.getValue(p.categoria) / maxPuntos else 0.0
-            val base = 0.5 * gustoProducto + 0.3 * gustoCategoria + 0.2 * (p.popularidad / 100.0)
+            val base = 0.5 * gustoProducto + 0.3 * probabilidades.getValue(p.categoria) + 0.2 * (p.popularidad / 100.0)
             val vecesMostrado = mostradosRecientes.count { it == p.id }
             return base * 0.5.pow(vecesMostrado)
         }
@@ -65,9 +79,14 @@ class Recomendador(private val semividaDias: Double = 7.0) {
         fun conVisto(motivo: String, p: Producto) =
             if ((interes[p.id] ?: 0.0) > 0) "$motivo · ya lo viste" else motivo
 
-        fun motivoDeGusto(p: Producto) =
-            if (puntos.getValue(p.categoria) > 0) conVisto("Te interesa ${p.categoria.etiqueta}", p)
-            else conVisto("Producto popular", p)
+        fun motivoDeGusto(p: Producto): String {
+            if (puntos.getValue(p.categoria) <= 0) return "Producto popular"
+            val porcentaje = (probabilidades.getValue(p.categoria) * 100).roundToInt()
+            val loViste = (interes[p.id] ?: 0.0) > 0
+            // Si la categoría casi no encaja con este momento, pero ya viste el producto, se dice solo eso.
+            return if (loViste && porcentaje < 15) "Lo viste antes"
+            else conVisto("Te interesa ${p.categoria.etiqueta} ($porcentaje % ahora)", p)
+        }
 
         val disponibles = catalogo.filter { it.id !in favoritos }.sortedByDescending { puntaje(it) }
         val categoriaContexto = categoriaDelContexto(franja)

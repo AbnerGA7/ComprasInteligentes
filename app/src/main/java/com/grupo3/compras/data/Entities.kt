@@ -3,10 +3,12 @@ package com.grupo3.compras.data
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.grupo3.compras.domain.Categoria
+import com.grupo3.compras.domain.Contexto
 import com.grupo3.compras.domain.Interaccion
 import com.grupo3.compras.domain.TipoInteraccion
+import java.time.DayOfWeek
 
-/** Cada búsqueda, clic o favorito: categoría, interacción, fecha, hora y peso. */
+/** Cada búsqueda, clic o favorito: categoría, interacción, fecha, hora, día de la semana y peso. */
 @Entity(tableName = "interacciones")
 data class InteraccionEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -15,6 +17,7 @@ data class InteraccionEntity(
     val interaccion: String,
     val fecha: Long,
     val hora: Int,
+    val diaSemana: Int = 1,
     val peso: Int,
     val termino: String? = null
 )
@@ -37,5 +40,6 @@ fun InteraccionEntity.aDominio(): Interaccion = Interaccion(
     productoId = productoId,
     categoria = Categoria.valueOf(categoria),
     tipo = TipoInteraccion.valueOf(interaccion),
-    epochMillis = fecha
+    epochMillis = fecha,
+    contexto = Contexto.de(DayOfWeek.of(diaSemana.coerceIn(1, 7)), hora)
 )

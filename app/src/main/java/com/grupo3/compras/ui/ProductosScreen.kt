@@ -24,9 +24,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -51,8 +53,13 @@ fun ProductosScreen(vm: ComprasViewModel, modifier: Modifier = Modifier) {
 
     // Cuando el usuario deja de escribir, la búsqueda se guarda para aprender de ella.
     LaunchedEffect(consulta) {
-        delay(1_000)
+        delay(700)
         vm.registrarBusqueda(consulta)
+    }
+    // Si cambia de pestaña antes de que pase ese tiempo, también se guarda.
+    val consultaActual by rememberUpdatedState(consulta)
+    DisposableEffect(Unit) {
+        onDispose { vm.registrarBusqueda(consultaActual) }
     }
 
     Column(modifier = modifier.fillMaxSize()) {

@@ -12,19 +12,26 @@ class RecomendadorTest {
     private val ahora = 1_800_000_000_000L
     private val diaMs = 86_400_000.0
 
+    // Contextos de prueba
+    private val semanaManana = Contexto(TipoDia.ENTRE_SEMANA, Momento.MANANA)
+    private val semanaNoche = Contexto(TipoDia.ENTRE_SEMANA, Momento.NOCHE)
+    private val finDeSemanaTarde = Contexto(TipoDia.FIN_DE_SEMANA, Momento.TARDE)
+
     private fun accion(
         productoId: String?,
         categoria: Categoria,
         tipo: TipoInteraccion,
-        diasAtras: Double = 0.0
-    ) = Interaccion(productoId, categoria, tipo, ahora - (diasAtras * diaMs).toLong())
+        diasAtras: Double = 0.0,
+        contexto: Contexto = semanaManana
+    ) = Interaccion(productoId, categoria, tipo, ahora - (diasAtras * diaMs).toLong(), contexto)
 
     private fun recomendar(
         franja: Franja,
         historial: List<Interaccion> = emptyList(),
         favoritos: Set<String> = emptySet(),
-        mostrados: List<String> = emptyList()
-    ) = motor.recomendar(Catalogo.productos, historial, favoritos, franja, ahora, mostrados)
+        mostrados: List<String> = emptyList(),
+        contexto: Contexto = semanaManana
+    ) = motor.recomendar(Catalogo.productos, historial, favoritos, franja, contexto, ahora, mostrados)
 
     private fun ids(recs: List<Recomendacion>) = recs.map { it.producto.id }
 
@@ -187,6 +194,91 @@ class RecomendadorTest {
         }
     }
 
+    // ------------------------------------------------------------ Naive Bayes
+
+    @Test
+    fun naiveBayesSinHistorialEsUniformeYSumaUno() {
+        val p = motor.probabilidadesPorCategoria(emptyList(), semanaManana, ahora)
+        assertEquals(1.0, p.values.sum(), 1e-9)
+        p.values.forEach { assertEquals(0.25, it, 1e-9) }
+    }
+
+    @Test
+    fun naiveBayesAprendeQueCategoriaVaConCadaMomento() {
+        val historial = List(4) { accion("of1", Categoria.OFICINA, TipoInteraccion.CLIC, contexto = semanaManana) } +
+            List(4) { accion("en1", Categoria.ENTRETENIMIENTO, TipoInteraccion.CLIC, contexto = finDeSemanaTarde) }
+        val enLaSemana = motor.probabilidadesPorCategoria(historial, semanaManana, ahora)
+        val enElFinDeSemana = motor.probabilidadesPorCategoria(historial, finDeSemanaTarde, ahora)
+        assertTrue(enLaSemana.getValue(Categoria.OFICINA) > enLaSemana.getValue(Categoria.ENTRETENIMIENTO))
+        assertTrue(enElFinDeSemana.getValue(Categoria.ENTRETENIMIENTO) > enElFinDeSemana.getValue(Categoria.OFICINA))
+        assertEquals(1.0, enLaSemana.values.sum(), 1e-9)
+        assertTrue(enLaSemana.values.all { it > 0.0 })
+    }
+
+    @Test
+    fun naiveBayesDaMasPesoAUnFavoritoQueAUnaBusqueda() {
+        val historial = listOf(
+            accion("te1", Categoria.TECNOLOGIA, TipoInteraccion.FAVORITO),
+            accion(null, Categoria.HOGAR, TipoInteraccion.BUSQUEDA)
+        )
+        val p = motor.probabilidadesPorCategoria(historial, semanaManana, ahora)
+        assertTrue(p.getValue(Categoria.TECNOLOGIA) > p.getValue(Categoria.HOGAR))
+    }
+
+    @Test
+    fun naiveBayesOlvidaLoViejo() {
+        val historial = List(10) { accion("of1", Categoria.OFICINA, TipoInteraccion.CLIC, diasAtras = 60.0) } +
+            accion("ho1", Categoria.HOGAR, TipoInteraccion.CLIC)
+        val p = motor.probabilidadesPorCategoria(historial, semanaManana, ahora)
+        assertTrue(p.getValue(Categoria.HOGAR) > p.getValue(Categoria.OFICINA))
+    }
+
+    @Test
+    fun elMomentoCambiaLaRecomendacionFueraDeHorario() {
+        val historial = List(3) { accion("te3", Categoria.TECNOLOGIA, TipoInteraccion.CLIC, contexto = semanaNoche) } +
+            List(3) { accion("en2", Categoria.ENTRETENIMIENTO, TipoInteraccion.CLIC, contexto = semanaManana) }
+        val enLaNoche = recomendar(Franja.OTRO, historial, contexto = semanaNoche)
+        val enLaManana = recomendar(Franja.OTRO, historial, contexto = semanaManana)
+        assertEquals(Categoria.TECNOLOGIA, enLaNoche[0].producto.categoria)
+        assertEquals(Categoria.ENTRETENIMIENTO, enLaManana[0].producto.categoria)
+    }
+
+    @Test
+    fun contextoContradictorioDaOficinaPeroRespetaElGusto() {
+        // Le gusta el entretenimiento, pero está en horario laboral.
+        val historial = List(4) { accion("en1", Categoria.ENTRETENIMIENTO, TipoInteraccion.CLIC) }
+        val recs = recomendar(Franja.LABORAL, historial)
+        assertEquals(Categoria.OFICINA, recs[0].producto.categoria)
+        assertEquals(Categoria.OFICINA, recs[1].producto.categoria)
+        assertEquals(Categoria.ENTRETENIMIENTO, recs[2].producto.categoria)
+    }
+
+    @Test
+    fun elMotivoMuestraLaProbabilidadDeNaiveBayes() {
+        val historial = List(3) { accion("te3", Categoria.TECNOLOGIA, TipoInteraccion.CLIC) }
+        val recs = recomendar(Franja.OTRO, historial)
+        assertTrue(recs[0].motivo.contains("%"))
+        assertTrue(recs[0].motivo.contains("Tecnología"))
+    }
+
+    @Test
+    fun siLaCategoriaNoEncajaConElMomentoPeroYaLoVisteSoloDiceQueLoViste() {
+        val historial = List(6) { accion("of1", Categoria.OFICINA, TipoInteraccion.CLIC, contexto = finDeSemanaTarde) } +
+            List(6) { accion("en1", Categoria.ENTRETENIMIENTO, TipoInteraccion.CLIC, contexto = semanaManana) }
+        val recs = recomendar(Franja.OTRO, historial, contexto = semanaManana)
+        assertEquals("Lo viste antes", recs.first { it.producto.id == "of1" }.motivo)
+    }
+
+    @Test
+    fun elContextoSeArmaConDiaYMomento() {
+        assertEquals(Contexto(TipoDia.FIN_DE_SEMANA, Momento.MANANA), Contexto.de(LocalDateTime.of(2026, 11, 14, 10, 0)))
+        assertEquals(Contexto(TipoDia.ENTRE_SEMANA, Momento.TARDE), Contexto.de(LocalDateTime.of(2026, 11, 16, 12, 0)))
+        assertEquals(Momento.NOCHE, Contexto.de(LocalDateTime.of(2026, 11, 16, 4, 59)).momento)
+        assertEquals(Momento.MANANA, Contexto.de(LocalDateTime.of(2026, 11, 16, 5, 0)).momento)
+        assertEquals(Momento.TARDE, Contexto.de(LocalDateTime.of(2026, 11, 16, 17, 59)).momento)
+        assertEquals(Momento.NOCHE, Contexto.de(LocalDateTime.of(2026, 11, 16, 18, 0)).momento)
+    }
+
     // ------------------------------------------------------------ general
 
     @Test
@@ -200,7 +292,7 @@ class RecomendadorTest {
 
     @Test
     fun conCatalogoVacioNoFalla() {
-        val recs = motor.recomendar(emptyList(), emptyList(), emptySet(), Franja.LABORAL, ahora)
+        val recs = motor.recomendar(emptyList(), emptyList(), emptySet(), Franja.LABORAL, semanaManana, ahora)
         assertTrue(recs.isEmpty())
     }
 
